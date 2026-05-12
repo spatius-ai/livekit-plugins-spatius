@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.28.0", "hatch-vcs>=0.5.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "livekit-plugins-spatius"
+dynamic = ["version"]
+description = "Agent Framework plugin for Spatius Avatar"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10.0"
+authors = [{ name = "3DRX", email = "3drxkjy@gmail.com" }]
+keywords = ["voice", "ai", "realtime", "audio", "video", "livekit", "webrtc", "avatar", "spatius"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+    "livekit-agents>=1.2.9",
+    "spatius>=1.0.0",
+]
+
+[project.urls]
+Documentation = "https://docs.spatius.ai"
+Website = "https://www.spatius.ai/"
+Source = "https://github.com/spatius-ai/livekit-plugins-spatius"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build]
+exclude = [
+    "/.uv-cache",
+    "/.venv",
+    "/.pytest_cache",
+    "/dist",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["livekit"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/livekit"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
