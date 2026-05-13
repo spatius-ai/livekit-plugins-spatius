@@ -973,7 +973,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "livekit-agents", specifier = ">=1.2.9" },
+    { name = "livekit-agents", specifier = ">=1.5.8" },
     { name = "spatius", specifier = ">=1.0.0" },
 ]
 
