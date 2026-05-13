@@ -54,21 +54,6 @@ if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 ```
 
-`AvatarSession` defaults to `region="us-west"` and composes Spatius endpoints from that region. To use another region:
-
-```python
-avatar = spatius.AvatarSession(region="us-east")
-```
-
-Explicit endpoint URLs still override region:
-
-```python
-avatar = spatius.AvatarSession(
-    console_endpoint_url="https://console.example.com/v1/console",
-    ingress_endpoint_url="wss://api.example.com/v2/driveningress",
-)
-```
-
 For detailed usage, see [Spatius docs](https://docs.spatius.ai).
 
 ## License
