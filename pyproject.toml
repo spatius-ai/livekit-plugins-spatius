@@ -30,6 +30,11 @@ dependencies = [
     "spatius>=1.0.1",
 ]
 
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
 [project.urls]
 Documentation = "https://docs.spatius.ai"
 Website = "https://www.spatius.ai/"

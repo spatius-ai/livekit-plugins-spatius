@@ -132,6 +132,9 @@ class AvatarSession(BaseAvatarSession):
         self._audio_buffer: QueueAudioOutput | None = None
         self._original_audio_output: Any | None = None
         self._audio_output_attached = False
+        self._user_state_changed_handler_registered = False
+        self._session_close_handler_registered = False
+        self._interrupt_task: asyncio.Task[None] | None = None
         self._main_task: asyncio.Task | None = None
         self._initialized = False
         self._segments: dict[str, _SegmentState] = {}
@@ -250,14 +253,10 @@ class AvatarSession(BaseAvatarSession):
             )
             self._initialized = True
 
-            @agent_session.on("user_state_changed")
-            def _on_user_state_changed(ev: Any) -> None:
-                if getattr(ev, "new_state", None) == "speaking":
-                    asyncio.create_task(self._handle_interrupt())
-
-            @agent_session.on("close")
-            def _on_session_close(_: Any) -> None:
-                asyncio.create_task(self.aclose())
+            agent_session.on("user_state_changed", self._on_user_state_changed)
+            self._user_state_changed_handler_registered = True
+            agent_session.on("close", self._on_session_close)
+            self._session_close_handler_registered = True
 
         except asyncio.CancelledError:
             await self.aclose()
@@ -564,7 +563,29 @@ class AvatarSession(BaseAvatarSession):
         self._pending_segment_ids.clear()
 
     def _on_clear_buffer(self) -> None:
-        asyncio.create_task(self._handle_interrupt())
+        self._schedule_interrupt()
+
+    def _on_user_state_changed(self, ev: Any) -> None:
+        if getattr(ev, "new_state", None) == "speaking":
+            self._schedule_interrupt()
+
+    def _on_session_close(self, _: Any) -> None:
+        asyncio.create_task(self.aclose())
+
+    def _schedule_interrupt(self) -> None:
+        if not self._spatius_session:
+            return
+        if self._active_req_id is None and not self._segments:
+            return
+        if self._interrupt_task and not self._interrupt_task.done():
+            return
+
+        self._interrupt_task = asyncio.create_task(self._handle_interrupt())
+        self._interrupt_task.add_done_callback(self._on_interrupt_task_done)
+
+    def _on_interrupt_task_done(self, task: asyncio.Task[None]) -> None:
+        if self._interrupt_task is task:
+            self._interrupt_task = None
 
     async def _handle_interrupt(self) -> None:
         if not self._spatius_session:
@@ -600,6 +621,17 @@ class AvatarSession(BaseAvatarSession):
             logger.warning("Failed to interrupt Spatius avatar", exc_info=e)
 
     async def aclose(self) -> None:
+        if self._agent_session and self._user_state_changed_handler_registered:
+            self._agent_session.off("user_state_changed", self._on_user_state_changed)
+            self._user_state_changed_handler_registered = False
+        if self._agent_session and self._session_close_handler_registered:
+            self._agent_session.off("close", self._on_session_close)
+            self._session_close_handler_registered = False
+
+        if self._interrupt_task:
+            await utils.aio.cancel_and_wait(self._interrupt_task)
+            self._interrupt_task = None
+
         if self._main_task:
             self._main_task.cancel()
             try:
