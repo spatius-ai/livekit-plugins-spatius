@@ -132,6 +132,7 @@ class AvatarSession(BaseAvatarSession):
         self._audio_buffer: QueueAudioOutput | None = None
         self._original_audio_output: Any | None = None
         self._audio_output_attached = False
+        self._session_close_handler_registered = False
         self._main_task: asyncio.Task | None = None
         self._initialized = False
         self._segments: dict[str, _SegmentState] = {}
@@ -250,14 +251,8 @@ class AvatarSession(BaseAvatarSession):
             )
             self._initialized = True
 
-            @agent_session.on("user_state_changed")
-            def _on_user_state_changed(ev: Any) -> None:
-                if getattr(ev, "new_state", None) == "speaking":
-                    asyncio.create_task(self._handle_interrupt())
-
-            @agent_session.on("close")
-            def _on_session_close(_: Any) -> None:
-                asyncio.create_task(self.aclose())
+            agent_session.on("close", self._on_session_close)
+            self._session_close_handler_registered = True
 
         except asyncio.CancelledError:
             await self.aclose()
@@ -566,6 +561,9 @@ class AvatarSession(BaseAvatarSession):
     def _on_clear_buffer(self) -> None:
         asyncio.create_task(self._handle_interrupt())
 
+    def _on_session_close(self, _: Any) -> None:
+        asyncio.create_task(self.aclose())
+
     async def _handle_interrupt(self) -> None:
         if not self._spatius_session:
             return
@@ -600,6 +598,10 @@ class AvatarSession(BaseAvatarSession):
             logger.warning("Failed to interrupt Spatius avatar", exc_info=e)
 
     async def aclose(self) -> None:
+        if self._agent_session and self._session_close_handler_registered:
+            self._agent_session.off("close", self._on_session_close)
+            self._session_close_handler_registered = False
+
         if self._main_task:
             self._main_task.cancel()
             try:
