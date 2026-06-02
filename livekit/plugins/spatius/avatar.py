@@ -80,6 +80,8 @@ class AvatarSession(BaseAvatarSession):
         idle_timeout_seconds: int = 0,
         sample_rate: NotGivenOr[int] = NOT_GIVEN,
     ) -> None:
+        super().__init__()
+
         resolved_api_key = api_key if utils.is_given(api_key) else os.getenv("SPATIUS_API_KEY")
         if not resolved_api_key:
             raise SpatiusException(
@@ -137,6 +139,14 @@ class AvatarSession(BaseAvatarSession):
         self._active_req_id: str | None = None
         self._active_segment_idle_end_task: asyncio.Task[None] | None = None
         self._segment_finalize_lock = asyncio.Lock()
+
+    @property
+    def avatar_identity(self) -> str:
+        return self._avatar_participant_identity
+
+    @property
+    def provider(self) -> str:
+        return "spatius"
 
     async def start(
         self,
@@ -624,6 +634,8 @@ class AvatarSession(BaseAvatarSession):
                 logger.warning("Error closing Spatius avatar session", exc_info=e)
             finally:
                 self._spatius_session = None
+
+        await super().aclose()
 
         self._initialized = False
         self._agent_session = None

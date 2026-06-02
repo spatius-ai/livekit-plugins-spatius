@@ -26,8 +26,8 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
-    "livekit-agents>=1.5.8",
-    "spatius>=1.0.0",
+    "livekit-agents>=1.5.15",
+    "spatius>=1.0.1",
 ]
 
 [project.urls]
