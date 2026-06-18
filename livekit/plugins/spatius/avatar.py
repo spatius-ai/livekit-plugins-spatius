@@ -159,6 +159,7 @@ class AvatarSession(BaseAvatarSession):
         livekit_url: NotGivenOr[str] = NOT_GIVEN,
         livekit_api_key: NotGivenOr[str] = NOT_GIVEN,
         livekit_api_secret: NotGivenOr[str] = NOT_GIVEN,
+        livekit_room_name: NotGivenOr[str] = NOT_GIVEN,
     ) -> None:
         """Start the Spatius avatar session and attach it to the agent output."""
         if self._initialized:
@@ -177,11 +178,19 @@ class AvatarSession(BaseAvatarSession):
                 "livekit_url, livekit_api_key, and livekit_api_secret must be set by arguments or environment variables"
             )
 
-        room_name = room.name
+        agent_room_name = room.name
+        room_name = str(livekit_room_name) if utils.is_given(livekit_room_name) else agent_room_name
+        if not room_name:
+            raise SpatiusException("livekit_room_name must not be empty")
+
         local_participant_identity = self._resolve_local_participant_identity(room)
         logger.debug(
             "starting Spatius avatar session",
-            extra={"room": room_name, "region": self._region},
+            extra={
+                "room": room_name,
+                "agent_room": agent_room_name,
+                "region": self._region,
+            },
         )
 
         egress_attributes = {ATTRIBUTE_PUBLISH_ON_BEHALF: local_participant_identity}
