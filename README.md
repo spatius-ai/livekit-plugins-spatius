@@ -54,20 +54,6 @@ if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 ```
 
-## Advanced LiveKit egress room
-
-By default, Spatius publishes the avatar into the same LiveKit room as the agent.
-For specialized routing setups, pass `livekit_room_name` to publish the avatar into
-a different room:
-
-```python
-await avatar.start(
-    session,
-    room=ctx.room,
-    livekit_room_name="avatar-output-room",
-)
-```
-
 For detailed usage, see [Spatius docs](https://docs.spatius.ai).
 
 ## License
