@@ -131,6 +131,7 @@ class AvatarSession(BaseAvatarSession):
         self._agent_session: AgentSession | None = None
         self._audio_buffer: QueueAudioOutput | None = None
         self._original_audio_output: Any | None = None
+        self._original_audio_tail: Any | None = None
         self._audio_output_attached = False
         self._user_state_changed_handler_registered = False
         self._session_close_handler_registered = False
@@ -233,6 +234,7 @@ class AvatarSession(BaseAvatarSession):
 
         self._agent_session = agent_session
         self._original_audio_output = agent_session.output.audio
+        self._original_audio_tail = self._get_audio_sink_proxy_tail(agent_session.output.audio)
 
         try:
             self._spatius_session = new_avatar_session(
@@ -254,7 +256,7 @@ class AvatarSession(BaseAvatarSession):
             await self._audio_buffer.start()
             self._audio_buffer.on("clear_buffer", self._on_clear_buffer)  # type: ignore[arg-type]
 
-            agent_session.output.audio = self._audio_buffer
+            agent_session.output.replace_audio_tail(self._audio_buffer)
             self._audio_output_attached = True
             self._main_task = asyncio.create_task(
                 self._run_main_task(),
@@ -304,6 +306,26 @@ class AvatarSession(BaseAvatarSession):
         if room.isconnected():
             return room.local_participant.identity
         raise SpatiusException("failed to get local participant identity")
+
+    @staticmethod
+    def _find_audio_sink_proxy(audio_output: Any | None) -> Any | None:
+        current = audio_output
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if current.__class__.__name__ == "_AudioSinkProxy" and callable(
+                getattr(current, "set_next_in_chain", None)
+            ):
+                return current
+            current = getattr(current, "next_in_chain", None)
+        return None
+
+    @classmethod
+    def _get_audio_sink_proxy_tail(cls, audio_output: Any | None) -> Any | None:
+        proxy = cls._find_audio_sink_proxy(audio_output)
+        if proxy is None:
+            return None
+        return proxy.next_in_chain
 
     @staticmethod
     def _format_error_reason(error: BaseException) -> str:
@@ -652,16 +674,19 @@ class AvatarSession(BaseAvatarSession):
         self._cancel_active_segment_idle_end()
         self._complete_all_segments(interrupted=True, reason="session_close")
 
-        if (
-            self._agent_session
-            and self._audio_buffer
-            and self._audio_output_attached
-            and self._agent_session.output.audio is self._audio_buffer
-        ):
-            self._agent_session.output.audio = self._original_audio_output
+        if self._agent_session and self._audio_buffer and self._audio_output_attached:
+            current_proxy = self._find_audio_sink_proxy(self._agent_session.output.audio)
+            if current_proxy is not None and current_proxy.next_in_chain is self._audio_buffer:
+                if self._original_audio_tail is not None:
+                    self._agent_session.output.replace_audio_tail(self._original_audio_tail)
+                else:
+                    self._agent_session.output.audio = self._original_audio_output
+            elif self._agent_session.output.audio is self._audio_buffer:
+                self._agent_session.output.audio = self._original_audio_output
 
         self._audio_output_attached = False
         self._original_audio_output = None
+        self._original_audio_tail = None
 
         if self._audio_buffer:
             await self._audio_buffer.aclose()
