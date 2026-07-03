@@ -27,8 +27,8 @@ from livekit.agents.voice.avatar import (
 from livekit.agents.voice.room_io import ATTRIBUTE_PUBLISH_ON_BEHALF
 
 from livekit import api, rtc
+from spatius import AudioFormat, LiveKitEgressConfig, OggOpusEncoderConfig, new_avatar_session
 from spatius import AvatarSession as SpatiusSDKSession
-from spatius import LiveKitEgressConfig, new_avatar_session
 from spatius.proto.generated import message_pb2 as _message_pb2
 
 from .log import logger
@@ -37,6 +37,10 @@ message_pb2: Any = _message_pb2
 
 DEFAULT_REGION = "us-west"
 DEFAULT_SAMPLE_RATE = 24000
+DEFAULT_AUDIO_FORMAT = AudioFormat.OGG_OPUS
+DEFAULT_OPUS_FRAME_DURATION_MS = 20
+DEFAULT_OPUS_APPLICATION = "audio"
+SUPPORTED_OPUS_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000}
 MIN_COMPLETION_TIMEOUT_SECONDS = 3.0
 COMPLETION_TIMEOUT_BUFFER_SECONDS = 2.0
 ACTIVE_SEGMENT_IDLE_END_SECONDS = 1.0
@@ -79,6 +83,10 @@ class AvatarSession(BaseAvatarSession):
         avatar_participant_name: NotGivenOr[str] = NOT_GIVEN,
         idle_timeout_seconds: int = 0,
         sample_rate: NotGivenOr[int] = NOT_GIVEN,
+        audio_format: NotGivenOr[AudioFormat | str] = NOT_GIVEN,
+        bitrate: int = 0,
+        opus_frame_duration_ms: int = DEFAULT_OPUS_FRAME_DURATION_MS,
+        opus_application: str = DEFAULT_OPUS_APPLICATION,
     ) -> None:
         super().__init__()
 
@@ -107,6 +115,18 @@ class AvatarSession(BaseAvatarSession):
             raise SpatiusException("idle_timeout_seconds must be greater than or equal to 0")
         if utils.is_given(sample_rate) and sample_rate <= 0:
             raise SpatiusException("sample_rate must be greater than 0")
+        if bitrate < 0:
+            raise SpatiusException("bitrate must be greater than or equal to 0")
+
+        try:
+            audio_format_value = (
+                audio_format
+                if utils.is_given(audio_format)
+                else os.getenv("SPATIUS_AUDIO_FORMAT", DEFAULT_AUDIO_FORMAT)
+            )
+            resolved_audio_format = AudioFormat(audio_format_value)
+        except ValueError as e:
+            raise SpatiusException(f"unsupported audio_format: {audio_format_value}") from e
 
         self._api_key = str(resolved_api_key)
         self._app_id = str(resolved_app_id)
@@ -126,6 +146,16 @@ class AvatarSession(BaseAvatarSession):
         )
         self._idle_timeout_seconds = idle_timeout_seconds
         self._sample_rate = sample_rate if utils.is_given(sample_rate) else None
+        self._audio_format = resolved_audio_format
+        self._bitrate = bitrate
+        self._opus_encoder_config = (
+            OggOpusEncoderConfig(
+                frame_duration_ms=opus_frame_duration_ms,
+                application=opus_application,
+            )
+            if resolved_audio_format == AudioFormat.OGG_OPUS
+            else None
+        )
 
         self._spatius_session: SpatiusSDKSession | None = None
         self._agent_session: AgentSession | None = None
@@ -231,6 +261,12 @@ class AvatarSession(BaseAvatarSession):
             resolved_sample_rate = agent_session.tts.sample_rate if agent_session.tts else DEFAULT_SAMPLE_RATE
         if resolved_sample_rate <= 0:
             raise SpatiusException("sample_rate must be greater than 0")
+        if self._audio_format == AudioFormat.OGG_OPUS and resolved_sample_rate not in SUPPORTED_OPUS_SAMPLE_RATES:
+            raise SpatiusException(
+                "Ogg Opus encoding supports sample rates: "
+                + ", ".join(str(rate) for rate in sorted(SUPPORTED_OPUS_SAMPLE_RATES))
+                + f" Hz; got {resolved_sample_rate} Hz"
+            )
 
         self._agent_session = agent_session
         self._original_audio_output = agent_session.output.audio
@@ -247,6 +283,9 @@ class AvatarSession(BaseAvatarSession):
                 expire_at=datetime.now(timezone.utc) + DEFAULT_SESSION_TTL,
                 livekit_egress=livekit_egress,
                 sample_rate=resolved_sample_rate,
+                bitrate=self._bitrate,
+                audio_format=self._audio_format,
+                ogg_opus_encoder=self._opus_encoder_config,
                 transport_frames=self._on_transport_frame,
             )
             await self._spatius_session.init()
@@ -295,7 +334,8 @@ class AvatarSession(BaseAvatarSession):
             "Check Spatius credentials, LiveKit room auth/token configuration, "
             "region/endpoint URLs, and outbound network access. "
             f"room={room_name}, avatar_id={self._avatar_id}, region={self._region}, "
-            f"sample_rate={sample_rate}. Reason: {self._format_error_reason(error)}"
+            f"sample_rate={sample_rate}, audio_format={self._audio_format.value}. "
+            f"Reason: {self._format_error_reason(error)}"
         )
 
     @staticmethod

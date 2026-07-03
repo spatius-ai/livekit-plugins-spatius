@@ -2,6 +2,8 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from spatius import AudioFormat
+
 from .avatar import AvatarSession, SpatiusException
 
 try:
@@ -10,6 +12,7 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 __all__ = [
+    "AudioFormat",
     "AvatarSession",
     "SpatiusException",
     "__version__",
