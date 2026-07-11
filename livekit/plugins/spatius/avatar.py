@@ -43,6 +43,7 @@ DEFAULT_OPUS_APPLICATION = "audio"
 SUPPORTED_OPUS_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000}
 MIN_COMPLETION_TIMEOUT_SECONDS = 3.0
 COMPLETION_TIMEOUT_BUFFER_SECONDS = 2.0
+ACTIVE_SEGMENT_IDLE_END_SECONDS = 1.0
 DEFAULT_SESSION_TTL = timedelta(hours=1)
 LIVEKIT_AVATAR_PUBLISH_SOURCES = ["camera", "microphone"]
 _AVATAR_AGENT_IDENTITY = "spatius-avatar-agent"
@@ -171,6 +172,8 @@ class AvatarSession(BaseAvatarSession):
         self._request_segments: dict[str, _SegmentState] = {}
         self._pending_segments: deque[_SegmentState] = deque()
         self._active_segment: _SegmentState | None = None
+        self._active_segment_last_frame_at: float | None = None
+        self._active_segment_idle_end_task: asyncio.Task[None] | None = None
         self._segment_finalize_lock = asyncio.Lock()
 
     @property
@@ -390,6 +393,50 @@ class AvatarSession(BaseAvatarSession):
 
         self._associate_request(segment, req_id)
         segment.pushed_duration += frame.duration
+        self._active_segment_last_frame_at = time.monotonic()
+        self._ensure_active_segment_idle_end_watchdog()
+
+    def _ensure_active_segment_idle_end_watchdog(self) -> None:
+        if self._active_segment_idle_end_task and not self._active_segment_idle_end_task.done():
+            return
+
+        self._active_segment_idle_end_task = asyncio.create_task(
+            self._watch_for_active_segment_idle_end(),
+            name="spatius_active_segment_idle_end",
+        )
+
+    def _cancel_active_segment_idle_end_watchdog(self) -> None:
+        task = self._active_segment_idle_end_task
+        self._active_segment_idle_end_task = None
+        self._active_segment_last_frame_at = None
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+
+    async def _watch_for_active_segment_idle_end(self) -> None:
+        current_task = asyncio.current_task()
+        try:
+            while self._active_segment is not None:
+                last_frame_at = self._active_segment_last_frame_at
+                if last_frame_at is None:
+                    return
+
+                remaining = last_frame_at + ACTIVE_SEGMENT_IDLE_END_SECONDS - time.monotonic()
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+                    continue
+
+                if self._audio_buffer:
+                    self._audio_buffer.flush()
+                    logger.warning(
+                        "Avatar segment end marker missing; queued an implicit segment end",
+                        extra={"idle_timeout": ACTIVE_SEGMENT_IDLE_END_SECONDS},
+                    )
+                return
+        except asyncio.CancelledError:
+            return
+        finally:
+            if self._active_segment_idle_end_task is current_task:
+                self._active_segment_idle_end_task = None
 
     def _associate_request(self, segment: _SegmentState, req_id: str) -> None:
         existing_segment = self._request_segments.get(req_id)
@@ -413,6 +460,7 @@ class AvatarSession(BaseAvatarSession):
             segment.final_req_id = req_id
             segment.finalized = True
             self._active_segment = None
+            self._cancel_active_segment_idle_end_watchdog()
             self._pending_segments.append(segment)
 
             if req_id in segment.completed_request_ids:
@@ -523,6 +571,7 @@ class AvatarSession(BaseAvatarSession):
 
         if self._active_segment is segment:
             self._active_segment = None
+            self._cancel_active_segment_idle_end_watchdog()
 
         playback_position = (
             self._estimate_interrupted_playback_position(segment) if interrupted else segment.pushed_duration
@@ -559,6 +608,7 @@ class AvatarSession(BaseAvatarSession):
             self._complete_segment(segment=segment, interrupted=interrupted, reason=reason)
 
         self._active_segment = None
+        self._cancel_active_segment_idle_end_watchdog()
         self._pending_segments.clear()
         self._request_segments.clear()
 

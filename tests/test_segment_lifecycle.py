@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from collections import deque
+from unittest.mock import patch
 
 from spatius.proto.generated import message_pb2
 
@@ -21,6 +22,10 @@ class _FakeSpatiusSession:
 class _FakeAudioBuffer:
     def __init__(self) -> None:
         self.completions: list[tuple[float, bool]] = []
+        self.flush_count = 0
+
+    def flush(self) -> None:
+        self.flush_count += 1
 
     def notify_playback_finished(self, playback_position: float, interrupted: bool) -> None:
         self.completions.append((playback_position, interrupted))
@@ -36,6 +41,8 @@ class SegmentLifecycleTest(unittest.IsolatedAsyncioTestCase):
         session._request_segments = {}
         session._pending_segments = deque()
         session._active_segment = None
+        session._active_segment_last_frame_at = None
+        session._active_segment_idle_end_task = None
         session._segment_finalize_lock = asyncio.Lock()
         return session, audio_buffer
 
@@ -54,6 +61,29 @@ class SegmentLifecycleTest(unittest.IsolatedAsyncioTestCase):
         message.server_response_animation.req_id = request_id
         message.server_response_animation.end = True
         return message.SerializeToString()
+
+    async def test_idle_audio_queues_implicit_segment_end(self) -> None:
+        session, audio_buffer = self._new_session(["request-1"])
+
+        with patch(
+            "livekit.plugins.spatius.avatar.ACTIVE_SEGMENT_IDLE_END_SECONDS",
+            0.01,
+        ):
+            await session._send_audio_frame(self._audio_frame())
+            await asyncio.sleep(0.03)
+
+        self.assertEqual(audio_buffer.flush_count, 1)
+        self.assertEqual(audio_buffer.completions, [])
+
+    async def test_audio_frames_share_one_idle_watchdog(self) -> None:
+        session, _ = self._new_session(["request-1", "request-1"])
+
+        await session._send_audio_frame(self._audio_frame())
+        watchdog = session._active_segment_idle_end_task
+        await session._send_audio_frame(self._audio_frame())
+
+        self.assertIs(session._active_segment_idle_end_task, watchdog)
+        session._cancel_active_segment_idle_end_watchdog()
 
     async def test_provider_completion_before_flush_notifies_once(self) -> None:
         session, audio_buffer = self._new_session(["request-1", "request-1"])
