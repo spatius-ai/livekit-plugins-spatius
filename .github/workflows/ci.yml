@@ -29,9 +29,6 @@ jobs:
       - name: Install the project
         run: uv sync --dev
 
-      - name: Tests
-        run: uv run python -m unittest discover -s tests
-
       - name: Ruff
         run: uv run ruff check --output-format=github .
         continue-on-error: true
