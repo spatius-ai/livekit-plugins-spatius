@@ -1,5 +1,16 @@
 # LiveKit Agents Plugin for Spatius Avatar
 
+> [!WARNING]
+> ## 🗄️ This repository is archived
+>
+> This plugin has been upstreamed into the official [livekit/agents](https://github.com/livekit/agents) repository.
+>
+> **All new versions, features, and bug fixes are maintained in [livekit/agents](https://github.com/livekit/agents/tree/main/livekit-plugins/livekit-plugins-spatius). Please use that repo instead of this one.**
+>
+> This repository is no longer maintained and is kept for historical reference only.
+
+---
+
 LiveKit Agents plugin for [Spatius](https://www.spatius.ai) avatar sessions. It forwards TTS audio from a LiveKit agent session to Spatius and lets the avatar publish synchronized audio and motion data back into the same room.
 
 ## Client-side rendering
